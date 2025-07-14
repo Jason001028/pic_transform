@@ -31,7 +31,9 @@ class ImageProcessorTask(QRunnable):
         """
         实际的图片处理逻辑，在工作线程中执行。
         """
+        print(f"DEBUG: ImageProcessorTask.run - 任务开始执行。")
         if self.original_image_pil is None:
+            print(f"DEBUG: ImageProcessorTask.run - 错误：没有加载图片。")
             self.signals.error.emit("没有加载图片，无法处理。")
             self.signals.finished.emit()
             return
@@ -39,22 +41,30 @@ class ImageProcessorTask(QRunnable):
         try:
             # 确保新尺寸的宽高都是正整数
             width, height = self.new_size
+            print(f"DEBUG: ImageProcessorTask.run - 目标新尺寸: {width}x{height}")
             if width < 1: width = 1
             if height < 1: height = 1
             
             # 使用 LANCZOS 算法进行高质量缩放
             scaled_image_pil = self.original_image_pil.resize((width, height), Image.Resampling.LANCZOS)
+            print(f"DEBUG: ImageProcessorTask.run - PIL图片缩放完成，尺寸: {scaled_image_pil.size}")
 
             # 将 PIL Image 转换为 QPixmap
             qimage = scaled_image_pil.toqimage()
+            print(f"DEBUG: ImageProcessorTask.run - PIL Image 转换为 QImage 完成，有效性: {not qimage.isNull()}, 格式: {qimage.format()}, 尺寸: {qimage.size().width()}x{qimage.size().height()}")
+            
             pixmap = QPixmap.fromImage(qimage)
+            print(f"DEBUG: ImageProcessorTask.run - QImage 转换为 QPixmap 完成，有效性: {not pixmap.isNull()}, 尺寸: {pixmap.size().width()}x{pixmap.size().height()}")
 
             self.signals.image_processed.emit(pixmap) # 发送处理结果
+            print(f"DEBUG: ImageProcessorTask.run - 发送 image_processed 信号。")
 
         except Exception as e:
+            print(f"DEBUG: ImageProcessorTask.run - 捕获到异常: {e}")
             self.signals.error.emit(f"图片处理失败: {e}")
         finally:
             self.signals.finished.emit() # 无论成功或失败，都发出完成信号
+            print(f"DEBUG: ImageProcessorTask.run - 发送 finished 信号。")
 
 class ImageViewer(QMainWindow):
     def __init__(self):
@@ -82,11 +92,14 @@ class ImageViewer(QMainWindow):
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setScaledContents(False) # 关键：我们自己缩放 QPixmap，而不是让 QLabel 缩放
         
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True) # 允许滚动区域调整其内部 widget 的大小
-        scroll_area.setWidget(self.image_label)
-        main_layout.addWidget(scroll_area)
+        self.scroll_area = QScrollArea() # 将 scroll_area 设为实例属性，方便在其他方法中访问
+        self.scroll_area.setWidgetResizable(True) # 允许滚动区域调整其内部 widget 的大小
+        self.scroll_area.setWidget(self.image_label)
+        main_layout.addWidget(self.scroll_area)
 
+        print(f"DEBUG: init_ui - QLabel 初始尺寸: {self.image_label.size().width()}x{self.image_label.size().height()}")
+        print(f"DEBUG: init_ui - QScrollArea 初始尺寸: {self.scroll_area.size().width()}x{self.scroll_area.size().height()}")
+        print(f"DEBUG: init_ui - QScrollArea 内部 Widget 初始尺寸: {self.scroll_area.widget().size().width()}x{self.scroll_area.widget().size().height()}")
         # 控制面板
         controls_layout = QHBoxLayout()
 
@@ -119,16 +132,21 @@ class ImageViewer(QMainWindow):
         file_path, _ = file_dialog.getOpenFileName(self, "选择图片", "", 
                                                     "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif *.tiff);;所有文件 (*.*)")
         if file_path:
+            print(f"DEBUG: open_image - 选择的文件路径: {file_path}")
             try:
                 self.original_image_pil = Image.open(file_path)
+                print(f"DEBUG: open_image - PIL图片加载成功，尺寸: {self.original_image_pil.size}, 模式: {self.original_image_pil.mode}, 格式: {self.original_image_pil.format}")
                 self.current_zoom_factor = 1.0 # 重置缩放比例
                 self.zoom_slider.setValue(100) # 重置滑块
                 self.zoom_input.setText("100%") # 重置输入框
                 self.display_image() # 触发初始显示和处理
             except Exception as e:
+                print(f"DEBUG: open_image - 无法加载图片: {e}")
                 self.image_label.setText(f"无法加载图片: {e}")
                 self.original_image_pil = None
                 self.image_label.setPixmap(QPixmap()) # 清空任何之前的图片
+        else:
+            print(f"DEBUG: open_image - 未选择文件。")
 
     def update_zoom_from_slider(self, value):
         """根据滑块值更新缩放比例并触发图片显示。"""
@@ -158,29 +176,37 @@ class ImageViewer(QMainWindow):
         """
         计算新尺寸，创建并提交图片处理任务到线程池。
         """
+        print(f"DEBUG: display_image - 进入 display_image 函数。")
         if self.original_image_pil:
+            print(f"DEBUG: display_image - 原始图片已加载。")
             original_width, original_height = self.original_image_pil.size
             
             # 根据当前缩放比例计算新尺寸
             new_width = int(original_width * self.current_zoom_factor)
             new_height = int(original_height * self.current_zoom_factor)
+            print(f"DEBUG: display_image - 计算新尺寸: {new_width}x{new_height} (缩放因子: {self.current_zoom_factor})")
 
             # 创建一个新的任务实例
             task = ImageProcessorTask(self.original_image_pil, (new_width, new_height))
+            print(f"DEBUG: display_image - 创建 ImageProcessorTask 实例。")
             
             # 连接任务的信号到主线程的槽函数
             task.signals.image_processed.connect(self._update_image_display)
             task.signals.error.connect(self._handle_processing_error)
             task.signals.finished.connect(self._processing_finished) # 任务完成时重新启用控件
+            print(f"DEBUG: display_image - 连接任务信号到槽函数。")
 
             self.thread_pool.start(task) # 提交任务到线程池
+            print(f"DEBUG: display_image - 任务已提交到线程池。")
 
             # 在任务处理期间显示“正在处理”消息，并清空旧图片
             self.image_label.setText("正在处理图片，请稍候...")
             self.image_label.setPixmap(QPixmap()) 
             self._set_controls_enabled(False) # 禁用控件，防止用户在处理期间再次操作
+            print(f"DEBUG: display_image - UI更新为'正在处理'并禁用控件。")
 
         else:
+            print(f"DEBUG: display_image - 原始图片未加载，显示提示信息。")
             self.image_label.setText("请点击 '打开图片' 加载图片")
             self.image_label.setPixmap(QPixmap()) # 清空图片
             self._set_controls_enabled(True) # 确保在没有图片时控件是启用的
@@ -188,18 +214,34 @@ class ImageViewer(QMainWindow):
     @pyqtSlot(QPixmap)
     def _update_image_display(self, pixmap):
         """槽函数：接收工作线程处理完成的 QPixmap 并更新 UI。"""
+        print(f"DEBUG: _update_image_display - 接收到 QPixmap 信号，QPixmap 有效性: {not pixmap.isNull()}, 尺寸: {pixmap.size().width()}x{pixmap.size().height()}")
         self.image_label.setPixmap(pixmap)
         self.image_label.adjustSize() # 调整 QLabel 的大小以适应新的 QPixmap
-
+        
+        print(f"DEBUG: _update_image_display - 图片已更新到 QLabel。")
+        print(f"DEBUG: _update_image_display - QLabel 最终尺寸: {self.image_label.size().width()}x{self.image_label.size().height()}")
+        print(f"DEBUG: _update_image_display - QLabel 内部 Pixmap 有效性: {not self.image_label.pixmap().isNull()}")
+        print(f"DEBUG: _update_image_display - QLabel 可见性: {self.image_label.isVisible()}")
+        print(f"DEBUG: _update_image_display - QLabel 父控件 (QScrollArea) 可见性: {self.image_label.parentWidget().isVisible()}")
+        print(f"DEBUG: _update_image_display - QScrollArea 最终尺寸: {self.scroll_area.size().width()}x{self.scroll_area.size().height()}")
+        print(f"DEBUG: _update_image_display - QScrollArea 内部 Widget (QLabel) 最终尺寸: {self.scroll_area.widget().size().width()}x{self.scroll_area.widget().size().height()}")
+        
+        # 强制更新布局，确保所有尺寸变化生效
+        self.scroll_area.widget().updateGeometry()
+        self.scroll_area.updateGeometry()
+        self.updateGeometry()
+        print(f"DEBUG: _update_image_display - 强制更新布局完成。")
     @pyqtSlot(str)
     def _handle_processing_error(self, error_message):
         """槽函数：处理工作线程发出的错误信息。"""
+        print(f"DEBUG: _handle_processing_error - 接收到错误信息: {error_message}")
         self.image_label.setText(f"错误: {error_message}")
         self.image_label.setPixmap(QPixmap()) # 错误时清空图片
 
     @pyqtSlot()
     def _processing_finished(self):
         """槽函数：图片处理任务完成（无论成功或失败）时调用。"""
+        print(f"DEBUG: _processing_finished - 图片处理任务完成，重新启用控件。")
         self._set_controls_enabled(True) # 重新启用控件
 
     def _set_controls_enabled(self, enabled):
