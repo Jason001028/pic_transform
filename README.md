@@ -1,2 +1,2 @@
-# pic_transform
+# pic_zoom
 用于图像缩放的简易工具化实现
