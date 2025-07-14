@@ -125,7 +125,62 @@ class ImageViewer(QMainWindow):
         self.zoom_input.returnPressed.connect(self.update_zoom_from_input)
         controls_layout.addWidget(self.zoom_input)
         
+        # 将缩放滑块和输入框放入一个垂直布局，以便在其下方添加标识
+        zoom_control_v_layout = QVBoxLayout()
+        zoom_control_h_layout = QHBoxLayout() # 包含 "缩放:", slider, input
+
+        zoom_control_h_layout.addWidget(QLabel("缩放:"))
+        zoom_control_h_layout.addWidget(self.zoom_slider)
+        zoom_control_h_layout.addWidget(self.zoom_input)
+
+        zoom_control_v_layout.addLayout(zoom_control_h_layout)
+
+        # 添加缩放标识
+        zoom_labels_layout = QHBoxLayout()
+        labels_data = [
+            ("10%", 10),
+            ("50%", 50),
+            ("100%", 100),
+            ("200%", 200),
+            ("300%", 300),
+            ("400%", 400),
+            ("500%", 500)
+        ]
+
+        prev_value = self.zoom_slider.minimum()
+        for i, (text, value) in enumerate(labels_data):
+            if i == 0:
+                # 第一个标签，前面没有 stretch
+                pass
+            else:
+                # 添加一个 stretch，其因子与前一个标签到当前标签的距离成比例
+                stretch_factor = value - prev_value
+                zoom_labels_layout.addStretch(stretch_factor)
+            
+            label = QLabel(text)
+            label.setAlignment(Qt.AlignCenter) # 居中对齐
+            zoom_labels_layout.addWidget(label)
+            prev_value = value
+
+        # 最后一个标签后面添加一个 stretch，以填充剩余空间
+        zoom_labels_layout.addStretch(self.zoom_slider.maximum() - prev_value)
+
+        zoom_control_v_layout.addLayout(zoom_labels_layout)
+        controls_layout.addLayout(zoom_control_v_layout) # 将这个垂直布局添加到主控制布局中
+        
         main_layout.addLayout(controls_layout)
+
+    def set_zoom_factor(self, factor: float):
+        """
+        API: 设置图片的缩放倍率。
+        factor: 缩放倍率，例如 1.0 代表 100%，0.5 代表 50%。
+        """
+        # 将浮点数因子转换为滑块的整数值 (100% -> 100)
+        slider_value = int(factor * 100)
+        # 限制在滑块的有效范围内
+        slider_value = max(self.zoom_slider.minimum(), min(self.zoom_slider.maximum(), slider_value))
+        self.zoom_slider.setValue(slider_value) # 这会触发 update_zoom_from_slider 和 display_image
+        print(f"DEBUG: set_zoom_factor - 外部调用设置缩放倍率到: {factor} (滑块值: {slider_value})")
 
     def open_image(self):
         file_dialog = QFileDialog()
